@@ -55,35 +55,37 @@ These are my Remote SSH settings:
     "remote.SSH.connectTimeout": 60,
     "remote.SSH.logLevel": "trace",
     "remote.SSH.showLoginTerminal": true,
-    "remote.SSH.path": "/path/to/ssh_wrapper.sh",
     "remote.SSH.useExecServer": true,
     "remote.SSH.maxReconnectionAttempts": 0,
     "remote.SSH.enableRemoteCommand": true,
     "remote.SSH.useLocalServer": true,
     "remote.SSH.localServerDownload": "off",
+    "remote.SSH.configFile": "/full/path/to/vscode-config",
     "remote.SSH.path": "/full/path/to/ssh_wrapper.sh", # or ssh.bat on windows
 ```
 
 
-Define your ssh connection in ssh_config like so with your desired slurm allocation:
+Define your ssh connection in a `ssh_config` file, preferably distinct from the default one, like so with your desired slurm allocation:
 ```
-Host remotehost
-  HostName your.remote.host
-  RequestTTY yes
-  ForwardAgent yes
-  IdentityFile /path/to/sshkey
-  RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode_UNIQUE_JOBNAME --time=24:00:00
-  User remoteusername
+Host slurmusrint1.cis.gov.pl
+   HostName slurmusrint1.cis.gov.pl
+   User username
+   RequestTTY yes
+   ForwardAgent yes
+   GSSAPIAuthentication=yes
+   GSSAPIDelegateCredentials=yes
+   GSSAPITrustDNS=yes
+   RemoteCommand salloc --no-shell -n 1 -c 4 -J vscode_interactive_job --time=12:00:00 --qos=interq -p INTEL_IVY,INTEL_SKYLAKE,INTEL_CASCADE,INTEL_HASWELL
 ```
   
-I have put the jobname as vscode_UNIQUE_JOBNAME so that the script can find the single job to cancel if you disconnect.
+I have put the jobname as `vscode_interactive_job` so that the script can find the single job to cancel if you disconnect.
 
 Connect and hopefully it works.
 
 ### Troubleshooting:
 - If you get an error about the ssh key not being found, make sure you have added it to the ssh-agent: `ssh-add /path/to/your/key`
 - Check the script is executable: `chmod +x ssh_wrapper.sh`
-- Check the ssh_config is correct and the RemoteCommand is correct.
+- Check the `ssh_config` is correct and the RemoteCommand is correct.
 - Remove the ~/.vscode-server on remotehost if you are having issues with the vscode server not starting.
 - Kill the vscode server on remotehost if you are having issues with the vscode server not starting: `pkill -f vscode-server` (or by using ctrl + shift + p -> Remote-SSH: Kill VS Code Server on Host... -> remotehost)
 - Kill the vscode server on your local machine if you are having issues with the vscode server not starting: `pkill -f vscode-server` (or by using ctrl + shift + p -> Remote-SSH: Kill VS Code Server on Host... -> local)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 DEBUGMODE=1
-config_file=".ssh/config"
+config_file=".ssh/vscode-config"
 SSH_BINARY=$(which ssh)
 SSH_CONFIG_FILE="$HOME/$config_file"
 SCANCEL_TIMEOUT=300
@@ -32,13 +32,13 @@ function extract_ssh_config {
     export REMOTE_USERNAME=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^user / { print $2 }')
     export HOSTNAME=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^hostname / { print $2 }')
     export REMOTE_COMMAND=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^remotecommand / { $1=""; print $0 }')
-    export IDENTITYFILE=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^identityfile / { print $2 }')
+    #export IDENTITYFILE=$($SSH_BINARY -F $SSH_CONFIG_FILE -G $host | awk '/^identityfile / { print $2 }')
     export JOB_NAME=$(echo "$REMOTE_COMMAND" | grep -oE -- '\-J\s+.*[^\s]+' | awk '{print $2}' )
     if [[ $DEBUGMODE == 1 ]]; then
         echo "REMOTE_USERNAME: $REMOTE_USERNAME"
         echo "HOSTNAME: $HOSTNAME"
         echo "REMOTE_COMMAND: $REMOTE_COMMAND"
-        echo "IDENTITYFILE: $IDENTITYFILE"
+        #echo "IDENTITYFILE: $IDENTITYFILE"
         echo "JOB_NAME: $JOB_NAME"
     fi
 }
@@ -68,12 +68,13 @@ function allocate_resources {
     # The end part that looks like someone mashed their keyboard came from this SO post:
     # https://unix.stackexchange.com/questions/474177/how-to-redirect-stderr-in-a-variable-but-keep-stdout-in-the-console
 
-    { ALLOC_OUTPUT=$($SSH_BINARY -F $SSH_CONFIG_FILE -o StrictHostKeyChecking=no -o ConnectTimeout=$CONNECT_TIMEOUT -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
+    #{ ALLOC_OUTPUT=$($SSH_BINARY -F $SSH_CONFIG_FILE -o StrictHostKeyChecking=no -o ConnectTimeout=$CONNECT_TIMEOUT -i $IDENTITYFILE $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
+    { ALLOC_OUTPUT=$($SSH_BINARY -F $SSH_CONFIG_FILE -o StrictHostKeyChecking=no -o ConnectTimeout=$CONNECT_TIMEOUT -o RemoteCommand=none $REMOTE_USERNAME@$HOSTNAME $REMOTE_COMMAND 2>&1 >&3 3>&-); } 3>&1
     
-    # if [[ $DEBUGMODE == 1 ]]; then
-    #     echo "Modified REMOTE_COMMAND: $REMOTE_COMMAND"
-    #     echo "Here's ALLOC_OUTPUT: $ALLOC_OUTPUT"
-    # fi
+    if [[ $DEBUGMODE == 1 ]]; then
+        echo "Modified REMOTE_COMMAND: $REMOTE_COMMAND"
+        echo "Here's ALLOC_OUTPUT: $ALLOC_OUTPUT"
+    fi
 
     # Extract the job id
     export JOBID=$(echo $ALLOC_OUTPUT | grep -oE "Granted job allocation [0-9]+" | awk '{print $NF}')
@@ -162,7 +163,7 @@ else
         else
             WATCHER_TEXT="echo \"watching ppid: \$ssh_pid\"; \
             N=0; \
-            while kill -0 \$ssh_pid 2>/dev/null; do sleep 1; N=\$N+1; done;"
+            while kill -0 \$ssh_pid 2>/dev/null; do sleep 1; N=\$N+1; echo \$N; done;"
         fi
 
         SRUN_COMMAND="export ssh_pid=\$(echo \$SSH_AUTH_SOCK | cut -d\".\" -f2); \
@@ -180,11 +181,35 @@ else
             echo "SRUN_COMMAND: $SRUN_COMMAND"
         fi
 
-        $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -i $IDENTITYFILE -D $PORT \
+	SETUP_AUTH_SOCKET="export SSH_AUTH_SOCK=/var\$SSH_AUTH_SOCK"
+
+	# TODO user defined env ??
+	SETUP_ENV="module use /mnt/opt/spack/0.20/share/spack/modules/linux-centos7-ivybridge \
+            && module load root-6.24.06-gcc-8.5.0-qeohzjk \
+            && module load gcc-13.1.0-gcc-13.1.0-mptekim \
+            && module load git-2.40.0-gcc-13.1.0-52r5imn \
+            && module load git-lfs-3.3.0-gcc-8.5.0-anktdzo"
+
+        if [[ $DEBUGMODE == 1 ]]; then
+            echo "Executing SSH command"
+            echo SSH_COMMAND: $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -D $PORT \
+            -o StrictHostKeyChecking=no -o ConnectTimeout=$CONNECT_TIMEOUT \
+	    -o RemoteCommand=none \
+	    -o GSSAPIAuthentication=yes -o GSSAPIDelegateCredentials=yes \
+            -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE \
+	    "$SETUP_AUTH_SOCKET && \
+            srun --overlap --jobid $JOBID /bin/bash -lc \
+            '$SETUP_ENV && $stdin_commands && \
+            $SRUN_COMMAND'"
+        fi
+        $SSH_BINARY -F $SSH_CONFIG_FILE -T -A -D $PORT \
         -o StrictHostKeyChecking=no -o ConnectTimeout=$CONNECT_TIMEOUT \
+	-o RemoteCommand=none \
+	-o GSSAPIAuthentication=yes -o GSSAPIDelegateCredentials=yes \
         -J $REMOTE_USERNAME@$HOSTNAME $REMOTE_USERNAME@$NODE \
+	"$SETUP_AUTH_SOCKET && \
         srun --overlap --jobid $JOBID /bin/bash -lc \
-        "'$stdin_commands && \
+        '$SETUP_ENV && $stdin_commands && \
         $SRUN_COMMAND'"
 
     else
